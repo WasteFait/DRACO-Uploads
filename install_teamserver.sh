@@ -8,9 +8,10 @@ if [[ ${EUID} -eq 0 ]]; then
   echo 'Run as a sudo-capable user, not root.' >&2
   exit 1
 fi
+lab_address_status='configured'
 if ! ip -4 -o addr show | awk '{print $4}' | grep -qx "${TEAMSERVER_IP}/${TEAMSERVER_PREFIX}"; then
-  echo "This host does not own ${TEAMSERVER_IP}/${TEAMSERVER_PREFIX}. Configure its management NIC first." >&2
-  exit 1
+  lab_address_status="not currently assigned; add ${TEAMSERVER_IP}/${TEAMSERVER_PREFIX} before student access"
+  echo "WARNING: ${TEAMSERVER_IP}/${TEAMSERVER_PREFIX} is not currently assigned. Installation will continue." >&2
 fi
 
 export DEIMUSTECH_OFFLINE_BUNDLE=${DEIMUSTECH_OFFLINE_BUNDLE:-}
@@ -22,7 +23,8 @@ sudo install -m 0644 "$script_dir/lab.env" /etc/deimustech-c2/lab.env
 cd /opt/deimustech/Mythic
 sudo ./mythic-cli start
 cd "$script_dir"
-./provision_default_operators.py
+echo 'Provisioning DeimusTech Mythic and Havoc operator accounts...'
+DEIMUSTECH_HAVOC_BIND_HOST="$HAVOC_BIND_HOST" ./provision_default_operators.py
 
 havoc_user=$USER
 havoc_group=$(id -gn)
@@ -60,6 +62,7 @@ else
   catalog_status='complete'
 fi
 
+echo 'Running integrated teamserver health checks...'
 cd /opt/deimustech/Mythic
 sudo ./mythic-cli status
 sudo systemctl is-active --quiet deimustech-havoc.service
@@ -82,5 +85,6 @@ echo 'Initial password       : see /etc/deimustech-c2/operator-accounts.txt'
 echo 'Havoc profile          : /opt/deimustech/Havoc/profiles/deimustech-lab.yaotl'
 echo 'Havoc systemd service  : deimustech-havoc.service (active and enabled)'
 echo "Mythic catalog         : $catalog_status"
+echo "Lab interface          : $lab_address_status"
 echo 'Integrated health check: passed'
 echo 'The redirector is not an operator login endpoint; callback/listener routing is configured separately.'

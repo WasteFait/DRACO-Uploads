@@ -11,6 +11,7 @@ import urllib.request
 from typing import Dict, Optional, Tuple
 
 TEAMSERVER = "172.16.113.66"
+HAVOC_BIND_HOST = os.environ.get("DEIMUSTECH_HAVOC_BIND_HOST", "0.0.0.0")
 MYTHIC_API_HOST = os.environ.get("DEIMUSTECH_MYTHIC_API_HOST", "127.0.0.1")
 MYTHIC_PORT = 7443
 DEFAULT_PASSWORD = "DeimusTech-Lab-Operator!"
@@ -68,7 +69,16 @@ def wait_for_login(username: str, password: str) -> str:
             )
             if response.get("access_token"):
                 return response["access_token"]
-            last_error = response.get("error", "authentication returned no access token")
+            if response.get("error"):
+                raise RuntimeError(
+                    "Mythic is online but rejected the administrator credentials: "
+                    f"{response['error']}. Mythic keeps the password stored in its database "
+                    "after first start; changing Mythic/.env does not change that account. "
+                    "Export the current password as DEIMUSTECH_MYTHIC_ADMIN_PASSWORD and rerun."
+                )
+            last_error = "authentication returned no access token"
+        except RuntimeError:
+            raise
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
             last_error = str(error)
         time.sleep(5)
@@ -81,7 +91,7 @@ def write_havoc_profile(password: str) -> None:
         for username in USERS
     )
     profile = f'''Teamserver {{
-    Host = "{TEAMSERVER}"
+    Host = "{HAVOC_BIND_HOST}"
     Port = 40056
 
     Build {{

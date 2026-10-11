@@ -20,16 +20,18 @@ approved network plan.
 
 ## Connected installation of both servers
 
-Configure the server NIC as `172.16.113.66/24`, copy this directory to it, and
-run:
+Copy this directory to the server and run:
 
 ```bash
 chmod +x *.sh *.py
 ./install_teamserver.sh
 ```
 
-The wrapper validates that the host owns `172.16.113.66/24`, then installs both
-Havoc and Mythic core. It installs Go 1.22.12 for the Havoc build and current
+The installer does not require `172.16.113.66/24` to exist during setup. Havoc
+binds to `0.0.0.0:40056`, Mythic provisioning uses loopback, and a missing lab
+address produces a warning instead of aborting. Assign `172.16.113.66/24`
+before students connect; their launchers continue to use that stable address.
+The installer installs both Havoc and Mythic core, Go 1.22.12 for the Havoc build, and current
 Docker CE plus Docker Compose v2 from Docker's official Ubuntu repository for
 Mythic. Ubuntu's older `docker.io` package is replaced when necessary without
 deleting Docker images, containers, volumes, or `/var/lib/docker`. Mythic
@@ -187,6 +189,8 @@ Students connect the Havoc GUI to `172.16.113.66:40056` and browse to
 ## Firewall baseline
 
 - Permit `172.16.113.0/24` to `172.16.113.66` TCP `40056` and `7443`.
+- Because Havoc binds all IPv4 interfaces to permit pre-network installation,
+  enforce this source restriction in vCenter port groups or the host firewall.
 - Deny those operator-management ports from target and redirector segments.
 - Allow only the separately approved listener path between teamserver,
   redirector and target network.
