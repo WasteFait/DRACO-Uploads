@@ -24,6 +24,34 @@ sudo ./mythic-cli start
 cd "$script_dir"
 ./provision_default_operators.py
 
+havoc_user=$USER
+havoc_group=$(id -gn)
+sudo tee /etc/systemd/system/deimustech-havoc.service >/dev/null <<EOF
+[Unit]
+Description=DeimusTech Havoc Teamserver
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=$havoc_user
+Group=$havoc_group
+WorkingDirectory=/opt/deimustech/Havoc
+ExecStart=/opt/deimustech/Havoc/havoc server --profile /opt/deimustech/Havoc/profiles/deimustech-lab.yaotl -v
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now deimustech-havoc.service
+sudo systemctl is-active --quiet deimustech-havoc.service || {
+  echo 'Havoc did not remain active. Review: sudo journalctl -u deimustech-havoc -n 100 --no-pager' >&2
+  exit 1
+}
+
 echo
 echo "Both C2 cores are installed on ${TEAMSERVER_IP}."
 echo "Havoc operator channel : ${TEAMSERVER_IP}:${HAVOC_OPERATOR_PORT}"
@@ -31,4 +59,5 @@ echo "Mythic operator UI     : https://${TEAMSERVER_IP}:${MYTHIC_HTTPS_PORT}"
 echo 'Training accounts      : operator-01 through operator-99'
 echo 'Initial password       : see /etc/deimustech-c2/operator-accounts.txt'
 echo 'Havoc profile          : /opt/deimustech/Havoc/profiles/deimustech-lab.yaotl'
+echo 'Havoc systemd service  : deimustech-havoc.service (active and enabled)'
 echo 'The redirector is not an operator login endpoint; callback/listener routing is configured separately.'
