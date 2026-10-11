@@ -55,8 +55,15 @@ sudo chmod 0644 /usr/share/applications/deimustech-havoc.desktop \
 sudo systemctl daemon-reload
 sudo systemctl enable NetworkManager-wait-online.service deimustech-clone-personalize.service
 
+test -x /opt/deimustech/Havoc/havoc
+test -x /usr/local/lib/deimustech/student-clone-firstboot
+test -f /usr/share/applications/deimustech-havoc.desktop
+test -f /usr/share/applications/deimustech-mythic.desktop
+systemctl is-enabled --quiet deimustech-clone-personalize.service
+
 echo
 echo 'Student gold image installation is complete.'
 echo 'IMPORTANT: shut down and convert this VM to a template without booting it again.'
 echo 'Each clone must receive exactly one address from 172.16.113.101-199.'
 echo 'At first boot, that address becomes hostname ops-01 through ops-99.'
+echo 'Gold-image health check passed.'

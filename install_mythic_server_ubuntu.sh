@@ -4,6 +4,7 @@ set -euo pipefail
 if [[ ${EUID} -eq 0 ]]; then echo 'Run as a sudo-capable user, not root.' >&2; exit 1; fi
 offline=${DEIMUSTECH_OFFLINE_BUNDLE:-}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$script_dir/lab.env"
 if [[ -n $offline ]]; then
   sudo dpkg -i "$offline"/debs/*.deb || sudo apt-get -f install -y --no-download
 else
@@ -28,9 +29,12 @@ if [[ -n $offline ]]; then
 fi
 if [[ -z $offline || ! -x ./mythic-cli ]]; then sudo make; fi
 sudo ./mythic-cli status
-sudo ./mythic-cli config set allowed_ip_blocks 172.16.113.0/24
+sudo ./mythic-cli config set allowed_ip_blocks "127.0.0.1/32,${OPERATOR_CIDR}"
+sudo ./mythic-cli config set nginx_bind_localhost_only false
+sudo ./mythic-cli config set nginx_use_ipv4 true
 sudo ./mythic-cli config set default_operation_name 'DeimusTech Operations'
 echo
-echo 'ALLOWED_IP_BLOCKS has been restricted to 172.16.113.0/24.'
+echo "ALLOWED_IP_BLOCKS permits local provisioning plus ${OPERATOR_CIDR}."
+echo 'Mythic nginx is configured on IPv4 beyond loopback for the operator VLAN.'
 echo 'The combined teamserver installer will now start Mythic and provision operator accounts.'
 echo 'Operator devices connect with a browser to the HTTPS URL reported by mythic-cli status.'

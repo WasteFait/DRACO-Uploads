@@ -52,6 +52,27 @@ sudo systemctl is-active --quiet deimustech-havoc.service || {
   exit 1
 }
 
+if [[ -n $DEIMUSTECH_OFFLINE_BUNDLE ]]; then
+  catalog_status='skipped in offline mode (catalog repositories/images are not in the base bundle)'
+elif ! "$script_dir/install_mythic_catalog.sh"; then
+  catalog_status='completed with one or more catalog failures; see /var/lib/deimustech-c2/mythic-catalog-failures.tsv'
+else
+  catalog_status='complete'
+fi
+
+cd /opt/deimustech/Mythic
+sudo ./mythic-cli status
+sudo systemctl is-active --quiet deimustech-havoc.service
+curl -ksS --connect-timeout 10 -o /dev/null "https://127.0.0.1:${MYTHIC_HTTPS_PORT}/"
+ss -lnt | awk '{print $4}' | grep -Eq "(^|:|])${HAVOC_OPERATOR_PORT}$" || {
+  echo "Havoc is active but TCP ${HAVOC_OPERATOR_PORT} is not listening." >&2
+  exit 1
+}
+ss -lnt | awk '{print $4}' | grep -Eq "(^|:|])${MYTHIC_HTTPS_PORT}$" || {
+  echo "Mythic reports status, but TCP ${MYTHIC_HTTPS_PORT} is not listening." >&2
+  exit 1
+}
+
 echo
 echo "Both C2 cores are installed on ${TEAMSERVER_IP}."
 echo "Havoc operator channel : ${TEAMSERVER_IP}:${HAVOC_OPERATOR_PORT}"
@@ -60,4 +81,6 @@ echo 'Training accounts      : operator-01 through operator-99'
 echo 'Initial password       : see /etc/deimustech-c2/operator-accounts.txt'
 echo 'Havoc profile          : /opt/deimustech/Havoc/profiles/deimustech-lab.yaotl'
 echo 'Havoc systemd service  : deimustech-havoc.service (active and enabled)'
+echo "Mythic catalog         : $catalog_status"
+echo 'Integrated health check: passed'
 echo 'The redirector is not an operator login endpoint; callback/listener routing is configured separately.'

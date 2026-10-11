@@ -33,7 +33,41 @@ Havoc and Mythic core. It installs Go 1.22.12 for the Havoc build and current
 Docker CE plus Docker Compose v2 from Docker's official Ubuntu repository for
 Mythic. Ubuntu's older `docker.io` package is replaced when necessary without
 deleting Docker images, containers, volumes, or `/var/lib/docker`. Mythic
-initially contains no agent or C2-profile add-ons.
+initially contains no agent or C2-profile add-ons. The installer starts Mythic
+and installs `deimustech-havoc.service`, which starts Havoc immediately and at
+every subsequent boot. It then installs the pinned Mythic community catalog:
+36 payload agents and 14 C2 profiles listed in `mythic_catalog.tsv`. Ancillary
+loggers, webhooks, eventing providers, wrappers, browsers and authentication
+plugins are intentionally not included because they are not agents or C2
+profiles.
+
+Mythic nginx is explicitly configured with `NGINX_BIND_LOCALHOST_ONLY=false`,
+IPv4 enabled, and an application allowlist of `127.0.0.1/32` plus
+`172.16.113.0/24`. Local account
+provisioning uses `127.0.0.1:7443`, so it does not depend on external-interface
+binding or routing to the server's own address.
+
+Catalog projects are installed sequentially to avoid concurrent build spikes.
+Successful entries are recorded and skipped on reruns. Since these are separate
+community projects, a failure in one is logged without uninstalling successful
+entries or taking down the base teamserver. Review:
+
+```bash
+cat /var/lib/deimustech-c2/mythic-catalog-failures.tsv
+sudo /opt/deimustech/Mythic/mythic-cli services
+```
+
+The complete catalog requires temporary Internet access and at least 20 GiB of
+free disk. It is not included in the base air-gap bundle because every project
+has its own repository and container images.
+
+Verify both services with:
+
+```bash
+sudo /opt/deimustech/Mythic/mythic-cli status
+sudo systemctl status deimustech-havoc --no-pager
+sudo ss -lntp | grep -E ':(40056|7443)[[:space:]]'
+```
 
 If an earlier attempt stopped because Docker was too old, the installation is
 safe to resume in place:

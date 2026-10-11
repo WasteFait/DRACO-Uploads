@@ -11,6 +11,7 @@ import urllib.request
 from typing import Dict, Optional, Tuple
 
 TEAMSERVER = "172.16.113.66"
+MYTHIC_API_HOST = os.environ.get("DEIMUSTECH_MYTHIC_API_HOST", "127.0.0.1")
 MYTHIC_PORT = 7443
 DEFAULT_PASSWORD = "DeimusTech-Lab-Operator!"
 DEFAULT_OPERATION = "DeimusTech Operations"
@@ -47,7 +48,7 @@ def request_json(url: str, payload: dict, headers: Optional[dict] = None) -> dic
 
 def graphql(token: str, query: str, variables: Optional[dict] = None) -> dict:
     response = request_json(
-        f"https://{TEAMSERVER}:{MYTHIC_PORT}/graphql/",
+        f"https://{MYTHIC_API_HOST}:{MYTHIC_PORT}/graphql/",
         {"query": query, "variables": variables or {}},
         {"Authorization": f"Bearer {token}"},
     )
@@ -62,7 +63,7 @@ def wait_for_login(username: str, password: str) -> str:
     while time.monotonic() < deadline:
         try:
             response = request_json(
-                f"https://{TEAMSERVER}:{MYTHIC_PORT}/auth",
+                f"https://{MYTHIC_API_HOST}:{MYTHIC_PORT}/auth",
                 {"username": username, "password": password, "scripting_version": "0.2.8"},
             )
             if response.get("access_token"):
@@ -111,7 +112,7 @@ Demon {{
 
 def provision_mythic(password: str, env: Dict[str, str]) -> Tuple[int, int]:
     admin_user = env.get("MYTHIC_ADMIN_USER", "mythic_admin")
-    admin_password = env.get("MYTHIC_ADMIN_PASSWORD")
+    admin_password = os.environ.get("DEIMUSTECH_MYTHIC_ADMIN_PASSWORD") or env.get("MYTHIC_ADMIN_PASSWORD")
     if not admin_password:
         raise RuntimeError("MYTHIC_ADMIN_PASSWORD is missing from Mythic/.env")
     operation = env.get("DEFAULT_OPERATION_NAME", DEFAULT_OPERATION)
@@ -144,6 +145,18 @@ def provision_mythic(password: str, env: Dict[str, str]) -> Tuple[int, int]:
       }
     """
     operations = graphql(token, membership_query, {"name": operation})["operation"]
+    if not operations:
+        create_operation = """
+          mutation CreateOperation($name: String) {
+            createOperation(name: $name) {
+              status error operation { id name }
+            }
+          }
+        """
+        result = graphql(token, create_operation, {"name": operation})["createOperation"]
+        if result.get("status") != "success":
+            raise RuntimeError(f"Failed to create Mythic operation {operation!r}: {result.get('error')}")
+        operations = graphql(token, membership_query, {"name": operation})["operation"]
     if len(operations) != 1:
         raise RuntimeError(f"Expected one Mythic operation named {operation!r}; found {len(operations)}")
     current = {entry["operator"]["username"] for entry in operations[0]["operatoroperations"]}

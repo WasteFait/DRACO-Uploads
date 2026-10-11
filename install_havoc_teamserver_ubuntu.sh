@@ -27,8 +27,6 @@ if [[ -z $offline || ! -x ./havoc ]]; then
   make ts-build
 fi
 echo
-echo 'Havoc teamserver built. Copy profiles/havoc.yaotl to profiles/deimustech-lab.yaotl,'
-echo 'replace its Operators block with the generated named accounts,'
-echo 'bind the operator service to 172.16.113.66:40056,'
-echo 'then start with: ./havoc server --profile profiles/deimustech-lab.yaotl -v'
+echo 'Havoc teamserver built. The combined installer will generate its operator profile'
+echo 'and install/start the persistent deimustech-havoc systemd service.'
 echo 'Do not expose TCP 40056 to the Internet.'
