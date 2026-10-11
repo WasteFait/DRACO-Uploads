@@ -8,6 +8,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from typing import Dict, Optional, Tuple
 
 TEAMSERVER = "172.16.113.66"
 MYTHIC_PORT = 7443
@@ -19,7 +20,7 @@ CREDENTIAL_SUMMARY = pathlib.Path("/etc/deimustech-c2/operator-accounts.txt")
 USERS = [f"operator-{number:02d}" for number in range(1, 100)]
 
 
-def read_env(path: pathlib.Path) -> dict[str, str]:
+def read_env(path: pathlib.Path) -> Dict[str, str]:
     values = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -30,7 +31,7 @@ def read_env(path: pathlib.Path) -> dict[str, str]:
     return values
 
 
-def request_json(url: str, payload: dict, headers: dict | None = None) -> dict:
+def request_json(url: str, payload: dict, headers: Optional[dict] = None) -> dict:
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
@@ -44,7 +45,7 @@ def request_json(url: str, payload: dict, headers: dict | None = None) -> dict:
         return json.load(response)
 
 
-def graphql(token: str, query: str, variables: dict | None = None) -> dict:
+def graphql(token: str, query: str, variables: Optional[dict] = None) -> dict:
     response = request_json(
         f"https://{TEAMSERVER}:{MYTHIC_PORT}/graphql/",
         {"query": query, "variables": variables or {}},
@@ -108,7 +109,7 @@ Demon {{
     HAVOC_PROFILE.chmod(0o600)
 
 
-def provision_mythic(password: str, env: dict[str, str]) -> tuple[int, int]:
+def provision_mythic(password: str, env: Dict[str, str]) -> Tuple[int, int]:
     admin_user = env.get("MYTHIC_ADMIN_USER", "mythic_admin")
     admin_password = env.get("MYTHIC_ADMIN_PASSWORD")
     if not admin_password:
