@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided, reversible Modbus TCP exercise client for the DeimusTech lab."""
+"""Guided Modbus TCP exercise client for the DeimusTech lab."""
 import argparse
 import datetime as dt
 import ipaddress
@@ -9,7 +9,6 @@ import socket
 import struct
 import sys
 import threading
-import uuid
 
 AUDIT_PATH = pathlib.Path.home() / "deimustech_modbus_injector.jsonl"
 READ_KINDS = ("coil", "discrete_input", "holding_register", "input_register")
@@ -79,7 +78,9 @@ class ModbusClient:
                 if transaction != self._transaction or protocol or unit != self.unit:
                     raise ModbusError("invalid MBAP response")
                 if response[0] & 0x80:
-                    raise ModbusError(f"exception code {response[1]}")
+                    raise ModbusError(
+                        f"Modbus exception 0x{response[1]:02X} ({response[1]})"
+                    )
                 return response
             except (OSError, ModbusError) as exc:
                 self.close()
@@ -116,7 +117,7 @@ def load_fleet():
 
 
 def resolve_lab_target(host, port, unit):
-    """Require an exact match to the commissioned lab inventory."""
+    """Describe a known tuple without blocking uncommissioned test values."""
     try:
         normalized = str(ipaddress.ip_address(host))
     except ValueError as exc:
@@ -124,10 +125,13 @@ def resolve_lab_target(host, port, unit):
     for device in load_fleet():
         if normalized == device["host"] and port == device["port"] and unit == device["unit_id"]:
             return device
-    raise ValueError(
-        "target IP, TCP port and unit ID do not match a commissioned DeimusTech lab RTU; "
-        "verify your network findings and authorized scope"
-    )
+    return {
+        "id": "UNCOMMISSIONED-TUPLE",
+        "name": "student-supplied Modbus endpoint",
+        "host": normalized,
+        "port": port,
+        "unit_id": unit,
+    }
 
 
 def parse_value(kind, text):
@@ -177,10 +181,16 @@ def print_target(args, device):
 
 def command_check(args):
     device, client = client_for(args)
-    client.close()
-    print_target(args, device)
-    print("Result           : TCP/Modbus endpoint reachable")
-    return 0
+    try:
+        # Coil zero exists on every commissioned simulator. Unlike a TCP-only
+        # probe, this forces the target to accept or reject the supplied unit.
+        value = client.read("coil", 0, 1)[0]
+        print_target(args, device)
+        print(f"Modbus probe     : coil[0]={value}")
+        print("Result           : Modbus endpoint and supplied unit responded")
+        return 0
+    finally:
+        client.close()
 
 
 def command_read(args):
@@ -201,7 +211,6 @@ def command_read(args):
 def command_write(args):
     requested = parse_value(args.kind, args.value)
     device, client = client_for(args)
-    transaction = str(uuid.uuid4())[:8]
     try:
         before = client.read(args.kind, args.address)[0]
         print_target(args, device)
@@ -216,70 +225,29 @@ def command_write(args):
         client.write(args.kind, args.address, requested)
         observed = client.read(args.kind, args.address)[0]
         verified = observed == requested
-        append_audit({"operation": "write", "transaction": transaction,
+        append_audit({"operation": "write",
                       "device": device["id"], "host": args.target, "port": args.port,
                       "unit": args.unit, "kind": args.kind, "address": args.address,
                       "before": before, "requested": requested, "readback": observed,
                       "verified": verified, "note": args.note.strip()})
         print(f"Readback         : {observed}")
         print(f"Verification     : {'PASS' if verified else 'FAIL'}")
-        print(f"Transaction ID   : {transaction}")
-        print(f"Restore command  : {pathlib.Path(sys.argv[0]).name} restore --transaction {transaction}")
-        return 0 if verified else 1
-    finally:
-        client.close()
-
-
-def find_restorable(transaction):
-    records = audit_records()
-    write = next((r for r in reversed(records)
-                  if r.get("operation") == "write" and r.get("transaction") == transaction), None)
-    if not write:
-        raise ValueError(f"no local write transaction named {transaction!r}")
-    if any(r.get("operation") == "restore" and r.get("transaction") == transaction and r.get("verified")
-           for r in records):
-        raise ValueError(f"transaction {transaction!r} has already been restored")
-    return write
-
-
-def command_restore(args):
-    record = find_restorable(args.transaction)
-    device = resolve_lab_target(record["host"], record["port"], record["unit"])
-    client = ModbusClient(record["host"], record["port"], record["unit"], timeout=2.0)
-    try:
-        current = client.read(record["kind"], record["address"])[0]
-        print(f"Restoring        : {args.transaction} on {device['id']}")
-        print(f"Current value    : {current}")
-        print(f"Baseline value   : {record['before']}")
-        phrase = f"RESTORE {args.transaction}"
-        if not args.execute and input(f"Type '{phrase}' to continue: ").strip() != phrase:
-            print("[CANCELLED] No restore write was sent.")
-            return 2
-        client.write(record["kind"], record["address"], record["before"])
-        observed = client.read(record["kind"], record["address"])[0]
-        verified = observed == record["before"]
-        append_audit({"operation": "restore", "transaction": args.transaction,
-                      "device": device["id"], "host": record["host"], "port": record["port"],
-                      "unit": record["unit"], "kind": record["kind"],
-                      "address": record["address"], "restored": record["before"],
-                      "readback": observed, "verified": verified})
-        print(f"Readback         : {observed}")
-        print(f"Restoration      : {'PASS' if verified else 'FAIL'}")
+        print("Restoration      : instructor-managed; record the baseline shown above")
         return 0 if verified else 1
     finally:
         client.close()
 
 
 def command_history(args):
-    records = [r for r in audit_records() if r.get("operation") in ("write", "restore")]
+    records = [r for r in audit_records() if r.get("operation") == "write"]
     if not records:
         print("No write or restoration transactions are recorded.")
         return 0
     for record in records[-args.limit:]:
-        value = record.get("requested", record.get("restored"))
-        print(f"{record.get('timestamp','?')}  {record['operation']:<7}  "
-              f"{record.get('transaction','-'):<8}  {record.get('device','?'):<12}  "
-              f"{record.get('kind','?')}[{record.get('address','?')}]={value}  "
+        value = record.get("requested")
+        print(f"{record.get('timestamp','?')}  {record.get('device','?'):<12}  "
+              f"{record.get('kind','?')}[{record.get('address','?')}] "
+              f"{record.get('before','?')} -> {value}  "
               f"verified={record.get('verified', False)}")
     return 0
 
@@ -314,8 +282,8 @@ def guided_menu(_args=None):
     print("You choose the RTU and point; the tool handles checks, verification and restoration.")
     while True:
         print("\n1) Check an endpoint  2) Read a point  3) Write a point")
-        print("4) Restore a write    5) Show history  6) Exit")
-        choice = input("Select 1-6: ").strip()
+        print("4) Show write history 5) Exit")
+        choice = input("Select 1-5: ").strip()
         try:
             if choice == "1":
                 args = guided_endpoint(); command_check(args)
@@ -336,14 +304,12 @@ def guided_menu(_args=None):
                 args.execute = False
                 command_write(args)
             elif choice == "4":
-                command_restore(argparse.Namespace(transaction=prompt("Transaction ID"), execute=False))
-            elif choice == "5":
                 command_history(argparse.Namespace(limit=20))
-            elif choice == "6":
-                print("Exit complete. Restore all exercise writes before shutdown.")
+            elif choice == "5":
+                print("Exit complete. Notify the instructor of all exercise writes.")
                 return 0
             else:
-                print("Choose a number from 1 through 6.")
+                print("Choose a number from 1 through 5.")
         except (ValueError, OSError, ModbusError) as exc:
             print(f"[ERROR] {exc}")
 
@@ -356,7 +322,7 @@ def add_endpoint(parser):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Guided, reversible Modbus engineering exercise client",
+        description="Guided Modbus engineering exercise client",
         epilog="Addresses are zero-based protocol offsets, not 4xxxx display references.")
     sub = parser.add_subparsers(dest="command")
 
@@ -380,12 +346,7 @@ def main():
     write.add_argument("--execute", action="store_true", help="instructor automation: skip typed phrase")
     write.set_defaults(handler=command_write)
 
-    restore = sub.add_parser("restore", help="restore the recorded baseline for a write transaction")
-    restore.add_argument("--transaction", required=True)
-    restore.add_argument("--execute", action="store_true", help="instructor automation: skip typed phrase")
-    restore.set_defaults(handler=command_restore)
-
-    history = sub.add_parser("history", help="show recent local write and restore records")
+    history = sub.add_parser("history", help="show recent local write records")
     history.add_argument("--limit", type=int, default=20)
     history.set_defaults(handler=command_history)
 
