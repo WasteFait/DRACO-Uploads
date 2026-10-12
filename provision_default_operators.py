@@ -48,11 +48,19 @@ def request_json(url: str, payload: dict, headers: Optional[dict] = None) -> dic
 
 
 def graphql(token: str, query: str, variables: Optional[dict] = None) -> dict:
-    response = request_json(
-        f"https://{MYTHIC_API_HOST}:{MYTHIC_PORT}/graphql/",
-        {"query": query, "variables": variables or {}},
-        {"Authorization": f"Bearer {token}"},
-    )
+    try:
+        response = request_json(
+            f"https://{MYTHIC_API_HOST}:{MYTHIC_PORT}/graphql/",
+            {"query": query, "variables": variables or {}},
+            {"Authorization": f"Bearer {token}"},
+        )
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"Mythic GraphQL returned HTTP {error.code}: {detail or error.reason}. "
+            "If the text mentions the authentication hook, Mythic's internal Docker "
+            "subnet is missing from ALLOWED_IP_BLOCKS; rerun install_teamserver.sh."
+        ) from error
     if response.get("errors"):
         raise RuntimeError(json.dumps(response["errors"], indent=2))
     return response["data"]
@@ -82,13 +90,6 @@ def wait_for_login(username: str, password: str) -> str:
                 detail = error.read().decode("utf-8", errors="replace").strip()
             except Exception:
                 detail = ""
-            if error.code == 403:
-                raise RuntimeError(
-                    "Mythic is healthy, but nginx returned HTTP 403. The request source "
-                    "is not in ALLOWED_IP_BLOCKS (Docker commonly presents its bridge "
-                    "gateway instead of 127.0.0.1). Rerun the integrated teamserver "
-                    "installer so it discovers and permits the exact bridge gateway."
-                )
             raise RuntimeError(
                 f"Mythic returned HTTP {error.code} {error.reason}: {detail or 'no response body'}"
             )
@@ -98,6 +99,21 @@ def wait_for_login(username: str, password: str) -> str:
             last_error = str(error)
         time.sleep(5)
     raise RuntimeError(f"Mythic was not ready after five minutes: {last_error}")
+
+
+def wait_for_api(username: str, password: str) -> str:
+    """Wait until login and the Hasura authentication hook both work."""
+    deadline = time.monotonic() + 300
+    last_error = "GraphQL has not answered yet"
+    while time.monotonic() < deadline:
+        token = wait_for_login(username, password)
+        try:
+            graphql(token, "query DeimusTechReadiness { operator(limit: 1) { id username } }")
+            return token
+        except RuntimeError as error:
+            last_error = str(error)
+            time.sleep(5)
+    raise RuntimeError(f"Mythic login worked, but its GraphQL API was not ready: {last_error}")
 
 
 def write_havoc_profile(password: str) -> None:
@@ -141,7 +157,9 @@ def provision_mythic(password: str, env: Dict[str, str]) -> Tuple[int, int]:
     if not admin_password:
         raise RuntimeError("MYTHIC_ADMIN_PASSWORD is missing from Mythic/.env")
     operation = env.get("DEFAULT_OPERATION_NAME", DEFAULT_OPERATION)
-    token = wait_for_login(admin_user, admin_password)
+    # A successful /auth alone does not prove that Hasura can call Mythic's
+    # internal authentication hook. wait_for_api verifies the complete path.
+    token = wait_for_api(admin_user, admin_password)
 
     existing_data = graphql(token, "query ExistingOperators { operator { id username } }")
     existing = {item["username"]: item["id"] for item in existing_data["operator"]}

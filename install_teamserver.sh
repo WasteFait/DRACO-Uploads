@@ -23,27 +23,34 @@ sudo install -m 0644 "$script_dir/lab.env" /etc/deimustech-c2/lab.env
 cd /opt/deimustech/Mythic
 sudo ./mythic-cli start
 
-mapfile -t mythic_gateways < <(
-  sudo docker inspect mythic_nginx \
-    --format '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}' 2>/dev/null |
+mapfile -t mythic_networks < <(
+  sudo docker inspect mythic_nginx mythic_graphql mythic_server \
+    --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' 2>/dev/null |
     awk 'NF && !seen[$0]++'
 )
-if ((${#mythic_gateways[@]} == 0)); then
-  echo 'Unable to determine the Mythic nginx Docker bridge gateway.' >&2
-  echo 'Inspect it with: sudo docker inspect mythic_nginx' >&2
+if ((${#mythic_networks[@]} == 0)); then
+  echo 'Unable to determine Mythic internal Docker networks.' >&2
+  echo 'Inspect them with: sudo docker inspect mythic_nginx mythic_graphql mythic_server' >&2
   exit 1
 fi
 mythic_allowed="127.0.0.1/32,${MYTHIC_ADDITIONAL_ALLOWED_CIDRS},${OPERATOR_CIDR}"
-for gateway in "${mythic_gateways[@]}"; do
-  if [[ $gateway == *:* ]]; then
-    mythic_allowed+=",${gateway}/128"
-  else
-    mythic_allowed+=",${gateway}/32"
+for network in "${mythic_networks[@]}"; do
+  mapfile -t network_subnets < <(
+    sudo docker network inspect "$network" \
+      --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null |
+      awk 'NF && !seen[$0]++'
+  )
+  if ((${#network_subnets[@]} == 0)); then
+    echo "Unable to determine subnet for Mythic Docker network: $network" >&2
+    exit 1
   fi
+  for subnet in "${network_subnets[@]}"; do
+    mythic_allowed+=",${subnet}"
+  done
 done
 sudo ./mythic-cli config set allowed_ip_blocks "$mythic_allowed"
 sudo ./mythic-cli restart
-echo "Mythic login allowlist: $mythic_allowed"
+echo "Mythic client and internal-service allowlist: $mythic_allowed"
 
 cd "$script_dir"
 echo 'Provisioning DeimusTech Mythic and Havoc operator accounts...'

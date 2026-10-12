@@ -67,7 +67,10 @@ Mythic nginx is explicitly configured with `NGINX_BIND_LOCALHOST_ONLY=false`
 and IPv4 enabled. On first start, the installer discovers nginx's actual Docker
 bridge gateway and restricts the login allowlist to `127.0.0.1/32`, that exact
 gateway `/32` (or `/128`), the required `172.19.0.1/32` bridge address, and
-`172.16.113.0/24`. This matters because a host
+the RFC1918 private ranges `10.0.0.0/8`, `172.16.0.0/12`, and
+`192.168.0.0/16`. This permits browser access through private vCenter management
+networks even before `172.16.113.66` exists, while still denying public source
+addresses. This matters because a host
 request to `127.0.0.1:7443` can appear to nginx as the Docker bridge gateway.
 Local provisioning therefore works without leaving Mythic open to arbitrary
 source networks.
