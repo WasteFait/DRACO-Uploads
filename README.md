@@ -27,6 +27,26 @@ chmod +x *.sh *.py
 ./install_teamserver.sh
 ```
 
+To discard an existing Mythic deployment and rebuild it with a clean database,
+known administrator credential, all numbered operators, the Havoc service, and
+the complete pinned agent/C2 catalog, use:
+
+```bash
+./rebuild_teamserver_clean.sh
+```
+
+This requires typing `REBUILD-MYTHIC`. For unattended instructor automation,
+pass `--yes`. It deletes only Mythic-labeled/named containers, volumes, networks,
+their referenced images, `/opt/deimustech/Mythic`, and Mythic catalog state. It
+does not delete Havoc or unrelated Docker workloads. The lab defaults are:
+
+- Mythic administrator: `mythic_admin` / `DeimusTech-Mythic-Admin!`
+- Numbered operators: `operator-01` through `operator-99` /
+  `DeimusTech-Lab-Operator!`
+
+The rebuild writes both credential summaries beneath `/etc/deimustech-c2` with
+mode `0600`.
+
 The installer does not require `172.16.113.66/24` to exist during setup. Havoc
 binds to `0.0.0.0:40056`, Mythic provisioning uses loopback, and a missing lab
 address produces a warning instead of aborting. Assign `172.16.113.66/24`
@@ -43,11 +63,14 @@ loggers, webhooks, eventing providers, wrappers, browsers and authentication
 plugins are intentionally not included because they are not agents or C2
 profiles.
 
-Mythic nginx is explicitly configured with `NGINX_BIND_LOCALHOST_ONLY=false`,
-IPv4 enabled, and an application allowlist of `127.0.0.1/32` plus
-`172.16.113.0/24`. Local account
-provisioning uses `127.0.0.1:7443`, so it does not depend on external-interface
-binding or routing to the server's own address.
+Mythic nginx is explicitly configured with `NGINX_BIND_LOCALHOST_ONLY=false`
+and IPv4 enabled. On first start, the installer discovers nginx's actual Docker
+bridge gateway and restricts the login allowlist to `127.0.0.1/32`, that exact
+gateway `/32` (or `/128`), the required `172.19.0.1/32` bridge address, and
+`172.16.113.0/24`. This matters because a host
+request to `127.0.0.1:7443` can appear to nginx as the Docker bridge gateway.
+Local provisioning therefore works without leaving Mythic open to arbitrary
+source networks.
 
 Catalog projects are installed sequentially to avoid concurrent build spikes.
 Successful entries are recorded and skipped on reruns. Since these are separate

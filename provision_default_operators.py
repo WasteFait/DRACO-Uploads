@@ -77,6 +77,21 @@ def wait_for_login(username: str, password: str) -> str:
                     "Export the current password as DEIMUSTECH_MYTHIC_ADMIN_PASSWORD and rerun."
                 )
             last_error = "authentication returned no access token"
+        except urllib.error.HTTPError as error:
+            try:
+                detail = error.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                detail = ""
+            if error.code == 403:
+                raise RuntimeError(
+                    "Mythic is healthy, but nginx returned HTTP 403. The request source "
+                    "is not in ALLOWED_IP_BLOCKS (Docker commonly presents its bridge "
+                    "gateway instead of 127.0.0.1). Rerun the integrated teamserver "
+                    "installer so it discovers and permits the exact bridge gateway."
+                )
+            raise RuntimeError(
+                f"Mythic returned HTTP {error.code} {error.reason}: {detail or 'no response body'}"
+            )
         except RuntimeError:
             raise
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:

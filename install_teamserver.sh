@@ -22,6 +22,29 @@ sudo install -d -m 0750 -o "$USER" -g "$USER" /etc/deimustech-c2
 sudo install -m 0644 "$script_dir/lab.env" /etc/deimustech-c2/lab.env
 cd /opt/deimustech/Mythic
 sudo ./mythic-cli start
+
+mapfile -t mythic_gateways < <(
+  sudo docker inspect mythic_nginx \
+    --format '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}' 2>/dev/null |
+    awk 'NF && !seen[$0]++'
+)
+if ((${#mythic_gateways[@]} == 0)); then
+  echo 'Unable to determine the Mythic nginx Docker bridge gateway.' >&2
+  echo 'Inspect it with: sudo docker inspect mythic_nginx' >&2
+  exit 1
+fi
+mythic_allowed="127.0.0.1/32,${MYTHIC_ADDITIONAL_ALLOWED_CIDRS},${OPERATOR_CIDR}"
+for gateway in "${mythic_gateways[@]}"; do
+  if [[ $gateway == *:* ]]; then
+    mythic_allowed+=",${gateway}/128"
+  else
+    mythic_allowed+=",${gateway}/32"
+  fi
+done
+sudo ./mythic-cli config set allowed_ip_blocks "$mythic_allowed"
+sudo ./mythic-cli restart
+echo "Mythic login allowlist: $mythic_allowed"
+
 cd "$script_dir"
 echo 'Provisioning DeimusTech Mythic and Havoc operator accounts...'
 DEIMUSTECH_HAVOC_BIND_HOST="$HAVOC_BIND_HOST" ./provision_default_operators.py
